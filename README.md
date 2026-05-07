@@ -66,13 +66,19 @@ streamlit run src/app.py
 
 ## Architecture
 
-Architecture diagram available inside:
+## Architecture Diagram
 
-```text
-architecture/
-```
+![Architecture](architecture/Architecture.png)
 
 ---
+
+## Sample Outputs
+
+### Emotion Dashboard
+![Dashboard](assets/dashboard.png)
+
+### Emotion Flow
+![Flow](assets/emotion_flow.png)
 
 ## Outputs
 
