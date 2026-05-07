@@ -128,6 +128,41 @@ STORY_SHAPES = {
     },
 }
 
+STORY_SHAPE_STRONG_THRESHOLD = 0.45
+STORY_SHAPE_TENTATIVE_THRESHOLD = 0.32
+
+LITERARY_EMOTION_CUES = {
+    "wonder": [
+        "wonder", "wonders", "wonderful", "beauty", "beautiful", "splendour",
+        "splendor", "glory", "magnificent", "marvel", "marvellous",
+        "marvelous", "awe", "astonishment", "sublime", "vision", "unknown",
+        "discovery", "curiosity", "enterprise", "attain", "undertaking",
+    ],
+    "sadness": [
+        "sad", "sorrow", "grief", "lonely", "miserable", "weep", "wept",
+        "tears", "despair", "melancholy", "pain", "suffering", "unhappy",
+        "farewell", "loss", "death", "mourning", "remorse",
+    ],
+    "fear": [
+        "fear", "afraid", "terrified", "horror", "dread", "danger",
+        "desolation", "darkness", "threat", "uncertain", "terror",
+        "anxiety", "alarm",
+    ],
+    "anger": [
+        "anger", "rage", "furious", "hatred", "fury", "revenge",
+        "detestation", "contempt", "enemy", "destroy", "vengeance",
+    ],
+    "disgust": [
+        "disgust", "rotten", "filthy", "gross", "hideous", "loathing",
+        "abhorrence", "wretch", "deformity",
+    ],
+    "joy": [
+        "joy", "happy", "delight", "hope", "bright", "confidence",
+        "pleasure", "cheerful", "success", "rejoice", "warmth",
+        "gratitude", "kindness", "love", "affection",
+    ],
+}
+
 
 @st.cache_data(show_spinner=False)
 def image_data_uri(file_name: str) -> str:
@@ -1154,7 +1189,7 @@ div.stButton > button:active {
 
 .story-shape-meta {
     display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
     gap: 0.65rem;
     margin: 0.85rem 0;
 }
@@ -2296,11 +2331,20 @@ def render_story_shape_card(analysis: dict) -> None:
         return
 
     candidates = story_shape.get("candidates", [])
+    shown_candidates = candidates[1:4]
+    if story_shape.get("name") == "No Strong Match":
+        shown_candidates = candidates[:4]
+
     alternative_text = ", ".join(
-        f"{item['name']} ({item['similarity']:.2f})" for item in candidates[1:4]
+        f"{item['name']} ({item['similarity']:.2f})" for item in shown_candidates
     )
     if not alternative_text:
         alternative_text = "Not enough variation for meaningful alternatives."
+
+    result_label = str(story_shape.get("name", "Unknown"))
+    closest_shape = str(story_shape.get("closest_shape") or result_label)
+    confidence = str(story_shape.get("confidence", "unknown")).title()
+    similarity = float(story_shape.get("similarity", 0.0))
 
     st.markdown(f"""
 <div class="story-shape-card">
@@ -2308,12 +2352,20 @@ def render_story_shape_card(analysis: dict) -> None:
     <p>{html.escape(str(story_shape.get("description", "")))}</p>
     <div class="story-shape-meta">
         <div>
-            <span>Canonical Shape</span>
-            <strong>{html.escape(str(story_shape.get("name", "Unknown")))}</strong>
+            <span>Result</span>
+            <strong>{html.escape(result_label)}</strong>
+        </div>
+        <div>
+            <span>Closest Shape</span>
+            <strong>{html.escape(closest_shape)}</strong>
         </div>
         <div>
             <span>Similarity</span>
-            <strong>{html.escape(f"{float(story_shape.get('similarity', 0.0)):.2f}")}</strong>
+            <strong>{html.escape(f"{similarity:.2f}")}</strong>
+        </div>
+        <div>
+            <span>Confidence</span>
+            <strong>{html.escape(confidence)}</strong>
         </div>
         <div>
             <span>Engine</span>
@@ -2387,7 +2439,6 @@ def render_section_summary_report(summary_df: pd.DataFrame) -> None:
         + '<div class="summary-row-list">'
         + "".join(detail_rows)
         + '</div>'
-        + '<p class="summary-table-note">This section uses light green and white cards so the peak text and summaries stay readable on the page background.</p>'
         + '</div>'
     )
     st.markdown(report_html, unsafe_allow_html=True)
@@ -2406,8 +2457,10 @@ def render_paragraph_detail_report(df: pd.DataFrame, title: str) -> None:
         sentiment = html.escape(str(row.get("Sentiment", "")))
         emotion = html.escape(str(row.get("Emotion", "")))
         confidence = html.escape(str(row.get("EmotionConfidence", "")))
+        note = html.escape(str(row.get("EmotionNote", "")).strip())
         emoji = html.escape(str(row.get("Emoji", "")))
         text = html.escape(str(row.get("Text", "")))
+        note_html = f"<span>Label Note</span><p>{note}</p>" if note else ""
 
         cards.append(f"""
 <article class="paragraph-row-card">
@@ -2438,6 +2491,7 @@ def render_paragraph_detail_report(df: pd.DataFrame, title: str) -> None:
         </div>
     </div>
     <div class="paragraph-row-text">
+        {note_html}
         <span>Full Context</span>
         <p>{text}</p>
     </div>
@@ -2803,7 +2857,9 @@ def describe_story_shape(section: dict) -> str:
     return (
         f"**Story shape for {section['title']}**\n\n"
         f"- Match: **{shape.get('name', 'Unknown')}**\n"
+        f"- Closest canonical shape: **{shape.get('closest_shape') or shape.get('name', 'Unknown')}**\n"
         f"- Similarity: **{format_score(shape.get('similarity', 0.0))}**\n"
+        f"- Confidence: **{str(shape.get('confidence', 'unknown')).title()}**\n"
         f"- Meaning: {shape.get('description', '')}\n\n"
         f"The dominant emotion is **{section['dominant_emotion']} {section['dominant_emoji']}**, "
         f"with overall valence **{format_score(section['overall_score'])}**."
@@ -3229,7 +3285,7 @@ def render_cached_analysis_results(context: dict) -> None:
             st.markdown('<h3 class="chart-title">Interactive Emotion Flow</h3>', unsafe_allow_html=True)
             st.plotly_chart(
                 plot_paragraph_graph(analysis["df"], "Paragraph Emotion Flow"),
-                width="stretch",
+                use_container_width=True,
             )
             show_analysis_block(analysis, "Final Paragraph Analysis")
         return
@@ -3245,7 +3301,7 @@ def render_cached_analysis_results(context: dict) -> None:
             st.markdown('<h3 class="chart-title">Interactive Emotion Flow</h3>', unsafe_allow_html=True)
             st.plotly_chart(
                 plot_paragraph_graph(analysis["df"], f"Emotion Flow for {section.get('title', 'Section')}"),
-                width="stretch",
+                use_container_width=True,
             )
             show_analysis_block(analysis, f"{section.get('title', 'Section')} Analysis")
 
@@ -3256,7 +3312,7 @@ def render_cached_analysis_results(context: dict) -> None:
         render_section_heading("Full Text", "Peak Emotion Graph Across All Sections")
         st.plotly_chart(
             plot_peak_emotion_graph(summary_df),
-            width="stretch",
+            use_container_width=True,
         )
 
         highest_peak_idx = summary_df["PeakScore"].abs().idxmax()
@@ -3501,8 +3557,8 @@ def write_pdf_process_snapshot(writer: PdfTextReport, context: dict) -> None:
     ])
     writer.write_bullets([
         "Text was split into sections when section headings were detected.",
-        "Each paragraph received a sentiment score, emotion label, confidence value, and emoji label.",
-        "Scores were smoothed and compared with known narrative arc shapes.",
+        "Each paragraph received a sentiment score, emotion label, confidence value, cue-adjustment note, and emoji label.",
+        "Scores were smoothed and compared with known narrative arc shapes; low-similarity arcs are reported as no strong match.",
         "The chatbot answers were generated from the saved analysis context and current chat transcript.",
     ])
 
@@ -3521,7 +3577,9 @@ def write_pdf_analysis_summary(writer: PdfTextReport, section: dict, include_par
         ("Negative paragraphs", str(analysis.get("negative_count", ""))),
         ("Neutral paragraphs", str(analysis.get("neutral_count", ""))),
         ("Story shape", shape.get("name", "")),
+        ("Closest canonical shape", shape.get("closest_shape", "")),
         ("Story shape similarity", format_score(shape.get("similarity", "")) if shape else ""),
+        ("Story shape confidence", str(shape.get("confidence", "")).title() if shape else ""),
     ])
 
     if shape.get("description"):
@@ -3553,6 +3611,8 @@ def write_pdf_analysis_summary(writer: PdfTextReport, section: dict, include_par
             f"sentiment {row.get('Sentiment', '')} | confidence {format_score(row.get('EmotionConfidence', ''))}"
         )
         writer.write_text(paragraph_label, font_size=9.1, color=(0.04, 0.23, 0.25), spacing_after=2)
+        if str(row.get("EmotionNote", "")).strip():
+            writer.write_text(f"Label note: {row.get('EmotionNote')}", font_size=8.7, indent=14, spacing_after=2)
         writer.write_text(row.get("Text", ""), font_size=8.4, indent=14, spacing_after=6)
 
 
@@ -3659,7 +3719,7 @@ Use this side like a reader's margin: choose a prepared question, then the answe
                                             continue
                                         label, question = QUICK_CHAT_QUESTIONS[index]
                                         with col:
-                                            if st.button(label, key=f"story_bot_quick_{index}", width="stretch"):
+                                            if st.button(label, key=f"story_bot_quick_{index}", use_container_width=True):
                                                 answer = answer_analysis_question(question, context)
                                                 st.session_state.analysis_chat_messages.append({"role": "user", "content": question})
                                                 st.session_state.analysis_chat_messages.append({"role": "assistant", "content": answer})
@@ -3674,7 +3734,7 @@ Use this side like a reader's margin: choose a prepared question, then the answe
 """, unsafe_allow_html=True)
 
                             if st.session_state.analysis_chat_messages:
-                                if st.button("Clear page", key="story_bot_clear", width="stretch"):
+                                if st.button("Clear page", key="story_bot_clear", use_container_width=True):
                                     st.session_state.analysis_chat_messages = []
 
                             messages_box = st.container(height=310, key="story_bot_messages")
@@ -3685,7 +3745,7 @@ Use this side like a reader's margin: choose a prepared question, then the answe
                                     label_visibility="collapsed",
                                     placeholder="Ask about a theme, peak, plot moment, chapter, or emotion...",
                                 )
-                                submitted = st.form_submit_button("Ask Story Guide", width="stretch")
+                                submitted = st.form_submit_button("Ask Story Guide", use_container_width=True)
 
                             if submitted and prompt.strip():
                                 answer = answer_analysis_question(prompt, context)
@@ -4280,21 +4340,112 @@ def classify_emotion_scores(text: str, max_words: int = 220) -> tuple[dict, str]
     return fallback_emotion_scores(compact), "keyword/VADER fallback"
 
 
-def emotion_from_scores(scores: dict) -> tuple[str, float]:
+def count_literary_emotion_cues(text: str, cue_words: list[str]) -> int:
+    text_lower = clean_extracted_text(str(text)).lower()
+    hits = 0
+    for cue in cue_words:
+        cue = cue.lower().strip()
+        if not cue:
+            continue
+        if " " in cue:
+            hits += text_lower.count(cue)
+        else:
+            hits += len(re.findall(rf"\b{re.escape(cue)}\w*\b", text_lower))
+    return hits
+
+
+def literary_emotion_cue_counts(text: str) -> dict[str, int]:
+    return {
+        label: count_literary_emotion_cues(text, cues)
+        for label, cues in LITERARY_EMOTION_CUES.items()
+    }
+
+
+def emotion_from_scores(scores: dict, text: str = "") -> tuple[str, float, str]:
     if not scores:
-        return "neutral", 0.0
+        return "neutral", 0.0, "No model score was available."
 
     ranked = sorted(scores.items(), key=lambda item: item[1], reverse=True)
     emotion, confidence = ranked[0]
+    second_emotion, second_confidence = ranked[1] if len(ranked) > 1 else ("neutral", 0.0)
+    margin = float(confidence) - float(second_confidence)
+
     if confidence < 0.28:
-        return "neutral", float(confidence)
-    return str(emotion), float(confidence)
+        emotion = "neutral"
+
+    cue_counts = literary_emotion_cue_counts(text)
+    vader_score = sia.polarity_scores(str(text))["compound"] if text else 0.0
+    negative_candidates = ["sadness", "fear", "anger", "disgust"]
+    negative_emotion = max(negative_candidates, key=lambda label: cue_counts.get(label, 0))
+    negative_hits = cue_counts.get(negative_emotion, 0)
+    sadness_hits = cue_counts.get("sadness", 0)
+    fear_hits = cue_counts.get("fear", 0)
+    disgust_hits = cue_counts.get("disgust", 0)
+
+    if emotion == "joy" and cue_counts.get("wonder", 0) >= 2 and vader_score > -0.18:
+        adjusted_confidence = max(float(confidence), 0.52)
+        return "wonder", adjusted_confidence, "Joy adjusted to wonder/ambition because literary cue words dominate the passage."
+
+    if emotion == "joy" and negative_hits >= 2 and vader_score < 0.10:
+        adjusted_confidence = max(0.46, min(float(confidence), 0.78))
+        return negative_emotion, adjusted_confidence, "Positive model label adjusted because negative literary cues and VADER tone conflict with joy."
+
+    if emotion == "neutral":
+        if negative_hits >= 2 and vader_score < -0.12:
+            adjusted_confidence = max(float(confidence), 0.48)
+            return negative_emotion, adjusted_confidence, "Neutral adjusted because negative literary cues carry the paragraph."
+        if cue_counts.get("wonder", 0) >= 2 and vader_score > -0.20:
+            adjusted_confidence = max(float(confidence), 0.48)
+            return "wonder", adjusted_confidence, "Neutral adjusted to wonder because discovery/awe language is prominent."
+
+    if emotion == "disgust":
+        grief_or_fear = "sadness" if sadness_hits >= fear_hits else "fear"
+        grief_or_fear_hits = max(sadness_hits, fear_hits)
+        disgust_is_textually_weak = disgust_hits == 0 or grief_or_fear_hits >= disgust_hits + 1
+        if grief_or_fear_hits >= 2 and disgust_is_textually_weak and vader_score <= 0.05:
+            adjusted_confidence = max(0.46, min(float(confidence), 0.74))
+            return grief_or_fear, adjusted_confidence, "Disgust adjusted because grief/fear cues are stronger than revulsion cues."
+
+    if margin < 0.06 and float(confidence) < 0.55 and emotion != second_emotion:
+        return "mixed", float(confidence), "Top emotion scores are close, so the label is treated as mixed."
+
+    return str(emotion), float(confidence), ""
 
 
 def score_from_emotion_scores(scores: dict) -> float:
     normalized = normalize_emotion_scores(scores)
     score = sum(EMOTION_VALENCE.get(label, 0.0) * value for label, value in normalized.items())
     return round(max(-1.0, min(1.0, score)), 4)
+
+
+def reconcile_valence_with_label(raw_score: float, emotion: str, text: str, confidence: float = 0.0) -> float:
+    vader_score = sia.polarity_scores(str(text))["compound"] if text else 0.0
+    label_valence = EMOTION_VALENCE.get(str(emotion), raw_score)
+    blended = raw_score * 0.62 + vader_score * 0.26 + label_valence * 0.12
+    cue_counts = literary_emotion_cue_counts(text)
+    if emotion == "mixed":
+        cue_hits = sum(cue_counts.values())
+    else:
+        cue_hits = cue_counts.get(str(emotion), 0)
+
+    intensity_factor = 1.0 + min(
+        0.24,
+        abs(vader_score) * 0.07 + max(0.0, float(confidence)) * 0.10 + min(cue_hits, 4) * 0.025,
+    )
+
+    if emotion in {"sadness", "fear", "anger", "disgust"} and vader_score < -0.05:
+        blended = min(blended, -0.06)
+    elif emotion in {"joy", "wonder"} and vader_score > 0.05:
+        blended = max(blended, 0.06)
+    elif emotion == "mixed":
+        blended = raw_score * 0.55 + vader_score * 0.45
+
+    if emotion != "neutral" and 0.05 <= abs(blended) <= 0.72:
+        blended *= intensity_factor
+    elif emotion != "neutral" and abs(blended) > 0.72:
+        blended *= 1.0 + (intensity_factor - 1.0) * 0.35
+
+    return round(max(-0.96, min(0.96, blended)), 4)
 
 
 def get_dominant_emotion(df: pd.DataFrame) -> str:
@@ -4387,10 +4538,13 @@ def match_story_shape(scores: list[float]) -> dict:
         return {
             "name": "Needs More Text",
             "similarity": 0.0,
+            "confidence": "insufficient",
+            "closest_shape": "",
             "description": "At least three analysis units are needed to compare a story shape.",
             "candidates": [],
             "smooth_values": smooth.tolist(),
             "shape_values": smooth.tolist(),
+            "plot_shape": False,
         }
 
     arc = centered_unit(resample_series(smooth, 72))
@@ -4406,15 +4560,40 @@ def match_story_shape(scores: list[float]) -> dict:
 
     candidates = sorted(candidates, key=lambda item: item["similarity"], reverse=True)
     best = candidates[0]
+    confidence = "strong" if best["similarity"] >= STORY_SHAPE_STRONG_THRESHOLD else "tentative"
+
+    if best["similarity"] < STORY_SHAPE_TENTATIVE_THRESHOLD:
+        return {
+            "name": "No Strong Match",
+            "similarity": best["similarity"],
+            "confidence": "weak",
+            "closest_shape": best["name"],
+            "description": (
+                f"The emotional arc is closest to {best['name']}, but the similarity is low. "
+                "Treat this as an open-ended or mixed arc rather than a forced canonical shape."
+            ),
+            "candidates": candidates,
+            "smooth_values": [round(float(value), 4) for value in smooth],
+            "shape_values": [round(float(value), 4) for value in smooth],
+            "plot_shape": False,
+        }
+
     shape_values = scale_template_to_arc(STORY_SHAPES[best["name"]]["points"], smooth, len(values))
 
     return {
         "name": best["name"],
         "similarity": best["similarity"],
-        "description": best["description"],
+        "confidence": confidence,
+        "closest_shape": best["name"],
+        "description": (
+            best["description"]
+            if confidence == "strong"
+            else f"Tentative match: {best['description']} The score is useful, but not definitive."
+        ),
         "candidates": candidates,
         "smooth_values": [round(float(value), 4) for value in smooth],
         "shape_values": [round(float(value), 4) for value in shape_values],
+        "plot_shape": True,
     }
 
 
@@ -4441,71 +4620,198 @@ def get_keywords(text: str) -> dict:
     }
 
 
+def join_natural(items: list[str]) -> str:
+    clean_items = [str(item).strip() for item in items if str(item).strip()]
+    if not clean_items:
+        return ""
+    if len(clean_items) == 1:
+        return clean_items[0]
+    if len(clean_items) == 2:
+        return f"{clean_items[0]} and {clean_items[1]}"
+    return ", ".join(clean_items[:-1]) + f", and {clean_items[-1]}"
+
+
+def summary_excerpt(text: str, limit: int = 190) -> str:
+    compact = re.sub(r"\s+", " ", clean_extracted_text(str(text))).strip()
+    compact = compact.replace("_", "")
+    compact = compact.strip(" '\"")
+    if not compact:
+        return ""
+    if len(compact) <= limit:
+        return compact
+    return compact[:limit].rsplit(" ", 1)[0].strip() + "..."
+
+
+def is_summary_candidate_sentence(sentence: str) -> bool:
+    compact = summary_excerpt(sentence, limit=400)
+    if len(compact) < 45:
+        return False
+
+    word_count = len(re.findall(r"[A-Za-z]{3,}", compact))
+    if word_count < 8:
+        return False
+
+    month_pattern = (
+        r"\b(?:january|february|march|april|may|june|july|august|"
+        r"september|october|november|december)\b"
+    )
+    if re.search(month_pattern, compact, flags=re.IGNORECASE) and re.search(r"\d", compact):
+        return False
+
+    return True
+
+
+def meaningful_sentences(text: str) -> list[str]:
+    sentences = split_into_sentences(text)
+    candidates = [sentence for sentence in sentences if is_summary_candidate_sentence(sentence)]
+    return candidates or [sentence for sentence in sentences if len(sentence.split()) >= 6] or sentences
+
+
+def first_meaningful_sentence(text: str) -> str:
+    sentences = meaningful_sentences(text)
+    return summary_excerpt(sentences[0] if sentences else text)
+
+
+def last_meaningful_sentence(text: str) -> str:
+    sentences = meaningful_sentences(text)
+    return summary_excerpt(sentences[-1] if sentences else text)
+
+
+def strongest_sentence_in_paragraph(text: str) -> str:
+    sentences = meaningful_sentences(text)
+    if not sentences:
+        return summary_excerpt(text)
+
+    def evidence_score(sentence: str) -> float:
+        vader = abs(sia.polarity_scores(sentence)["compound"])
+        cue_hits = sum(
+            count_literary_emotion_cues(sentence, cues)
+            for cues in LITERARY_EMOTION_CUES.values()
+        )
+        theme_hits = sum(count_theme_hits(sentence, terms) for terms in THEME_KEYWORDS.values())
+        return vader + cue_hits * 0.08 + theme_hits * 0.04
+
+    return summary_excerpt(max(sentences, key=evidence_score), limit=210)
+
+
+def strongest_section_themes(text: str, limit: int = 3) -> list[str]:
+    scores = []
+    for theme, terms in THEME_KEYWORDS.items():
+        hits = count_theme_hits(text, terms)
+        if hits:
+            scores.append((theme, hits))
+    scores.sort(key=lambda item: item[1], reverse=True)
+    return [theme for theme, _ in scores[:limit]]
+
+
+def strongest_content_terms(text: str, limit: int = 4) -> list[str]:
+    stop_words = CHAT_STOP_WORDS | {
+        "about", "after", "again", "all", "also", "am", "any", "been", "before",
+        "being", "but", "cannot", "every", "had", "has", "have", "her", "him",
+        "his", "into", "its", "may", "more", "must", "my", "no", "not", "now",
+        "only", "our", "out", "over", "own", "shall", "she", "should", "so",
+        "some", "than", "their", "them", "then", "these", "they", "those",
+        "through", "upon", "were", "will", "would", "your",
+    }
+    tokens = re.findall(r"[a-zA-Z][a-zA-Z'-]{3,}", text.lower())
+    counts = Counter(token.strip("'") for token in tokens if token not in stop_words)
+    return [term for term, _ in counts.most_common(limit)]
+
+
+def describe_emotional_movement(df: pd.DataFrame) -> str:
+    if df.empty or "Score" not in df:
+        return "The emotional movement is not strong enough to describe reliably."
+
+    scores = df["Score"].astype(float).to_numpy()
+    if len(scores) == 1:
+        return f"The section stays close to one emotional level, with valence around {scores[0]:.2f}."
+
+    third = max(1, len(scores) // 3)
+    start_score = float(np.mean(scores[:third]))
+    end_score = float(np.mean(scores[-third:]))
+    delta = end_score - start_score
+    spread = float(scores.max() - scores.min())
+
+    if delta >= 0.12:
+        direction = "rises"
+    elif delta <= -0.12:
+        direction = "falls"
+    else:
+        direction = "stays relatively steady"
+
+    if spread >= 0.45:
+        variation = f" with noticeable swings between {scores.min():.2f} and {scores.max():.2f}"
+    else:
+        variation = f" within a narrower range of {scores.min():.2f} to {scores.max():.2f}"
+
+    return f"The paragraph-level arc {direction} from {start_score:.2f} to {end_score:.2f}{variation}."
+
+
+def describe_emotion_reading(dominant_emotion: str, themes: list[str], df: pd.DataFrame) -> str:
+    confidence = 0.0
+    if "EmotionConfidence" in df and not df["EmotionConfidence"].empty:
+        confidence = float(df["EmotionConfidence"].mean())
+
+    confidence_phrase = "strong" if confidence >= 0.70 else "moderate" if confidence >= 0.45 else "cautious"
+    theme_set = set(themes)
+
+    if dominant_emotion == "joy" and {"ambition", "nature", "hope"} & theme_set:
+        return (
+            "The dominant label is joy, but in context it reads more like hopeful ambition, "
+            "curiosity, or wonder than simple happiness."
+        )
+    if dominant_emotion == "wonder":
+        return "The main emotion is best read as wonder: positive intensity mixed with curiosity and awe."
+    if dominant_emotion == "neutral" and {"death", "fear", "loneliness", "guilt"} & theme_set:
+        return "The neutral label should be read cautiously because the topic words still carry muted distress."
+    if dominant_emotion == "mixed":
+        return "The model treats the section as mixed because no single emotional label clearly dominates."
+    return f"The dominant emotion is {dominant_emotion}, with {confidence_phrase} average label confidence."
+
+
 def build_writer_style_summary_from_paragraphs(paragraphs: list[str], df: pd.DataFrame, overall_sentiment: str) -> str:
     if not paragraphs:
         return ""
 
     full_text = " ".join(paragraphs)
-    low_text = full_text.lower()
     dominant_emotion = get_dominant_emotion(df)
 
-    start_text = paragraphs[0].lower()
-    end_text = paragraphs[-1].lower()
+    opening = first_meaningful_sentence(paragraphs[0])
+    closing = last_meaningful_sentence(paragraphs[-1])
+    peak_sentence = ""
+    peak_number = ""
+    if not df.empty and "Score" in df:
+        peak_row = df.loc[df["Score"].abs().idxmax()]
+        peak_number = str(peak_row.get("Paragraph", ""))
+        peak_sentence = strongest_sentence_in_paragraph(str(peak_row.get("Text", "")))
 
-    start_keys = get_keywords(start_text)
-    end_keys = get_keywords(end_text)
-    overall_keys = get_keywords(low_text)
-
-    if overall_keys["has_affection"] and overall_keys["has_farewell"]:
-        summary = (
-            "This section moves from reflection into a more personal and emotional closing. "
-            "The writing combines uncertainty and separation with affection and gratitude. "
-            "By the end, the emotional tone becomes intimate, vulnerable, and heartfelt."
-        )
-    elif dominant_emotion in ["joy", "wonder"] and overall_keys["has_wonder"]:
-        summary = (
-            "This section is shaped by wonder, discovery, and imaginative energy. "
-            "Its language presents the narrative as expansive and forward-looking. "
-            "The emotional tone feels elevated, curious, and full of possibility."
-        )
-    elif dominant_emotion == "fear":
-        summary = (
-            "This section is driven by unease, danger, and emotional strain. "
-            "Its language creates a tense atmosphere in which uncertainty and threat remain close at hand. "
-            "The overall effect is dark, uneasy, and psychologically heavy."
-        )
-    elif dominant_emotion == "sadness":
-        summary = (
-            "This section carries a sorrowful and reflective emotional tone. "
-            "Its language emphasizes loss, grief, and inward suffering. "
-            "Rather than simple narration, it presents the emotional aftermath of painful events."
-        )
-    elif dominant_emotion == "anger":
-        summary = (
-            "This section is marked by emotional intensity, hostility, and force. "
-            "The language suggests confrontation, resentment, or moral outrage. "
-            "Its tone feels heated and emotionally charged."
-        )
-    elif dominant_emotion == "mixed":
-        summary = (
-            "This section blends more than one emotional current rather than settling into a single mood. "
-            "Hope, fear, reflection, and feeling interact across the passage. "
-            "That layered movement gives the writing a more human and literary texture."
-        )
+    themes = strongest_section_themes(full_text)
+    terms = strongest_content_terms(full_text)
+    if themes:
+        focus = f"recurring signals around {join_natural(themes)}"
+    elif terms:
+        focus = f"repeated language such as {join_natural(terms)}"
     else:
-        summary = (
-            f"This section is overall {overall_sentiment} and mainly shaped by {dominant_emotion}. "
-            "Its emotional movement develops gradually through reflection and description. "
-            "The result is a clear narrative mood with literary depth."
-        )
+        focus = "the section's own repeated images and concerns"
 
-    if overall_keys["has_humanity"] and "humanity" not in summary.lower():
-        summary += " It also broadens personal feeling into a larger human meaning."
+    movement = describe_emotional_movement(df)
+    emotion_reading = describe_emotion_reading(dominant_emotion, themes, df)
 
-    if start_keys["has_wonder"] and end_keys["has_affection"] and "shifts" not in summary.lower():
-        summary += " The emotional movement also shifts from outward observation to inward feeling."
+    parts = []
+    if opening:
+        parts.append(f"The passage opens with \"{opening}\", anchoring the section in {focus}.")
+    else:
+        parts.append(f"The passage is anchored in {focus}.")
 
-    return summary
+    if peak_sentence:
+        paragraph_label = f"paragraph {peak_number}" if peak_number else "the peak paragraph"
+        parts.append(f"The strongest emotional evidence comes in {paragraph_label}: \"{peak_sentence}\"")
+
+    if closing and closing != opening and closing != peak_sentence:
+        parts.append(f"It closes on \"{closing}\", which makes the ending feel tied to the specific scene rather than a generic mood.")
+
+    parts.append(f"{movement} Overall sentiment is {overall_sentiment}. {emotion_reading}")
+    return " ".join(parts)
 
 
 # ----------------------------
@@ -4894,9 +5200,10 @@ def analyze_paragraphs(paragraphs: list[str]) -> pd.DataFrame:
     rows = []
     for i, paragraph in enumerate(paragraphs, start=1):
         emotion_scores, engine = classify_emotion_scores(paragraph)
-        score = score_from_emotion_scores(emotion_scores)
+        raw_score = score_from_emotion_scores(emotion_scores)
+        emotion, emotion_confidence, emotion_note = emotion_from_scores(emotion_scores, paragraph)
+        score = reconcile_valence_with_label(raw_score, emotion, paragraph, emotion_confidence)
         sentiment = classify_sentiment(score)
-        emotion, emotion_confidence = emotion_from_scores(emotion_scores)
         emoji = emotion_emoji(emotion)
         sentence_count = len(split_into_sentences(paragraph))
 
@@ -4907,6 +5214,7 @@ def analyze_paragraphs(paragraphs: list[str]) -> pd.DataFrame:
             "Sentiment": sentiment,
             "Emotion": emotion,
             "EmotionConfidence": round(emotion_confidence, 4),
+            "EmotionNote": emotion_note,
             "AnalysisEngine": engine,
             "Emoji": emoji,
             "Text": paragraph,
@@ -4984,9 +5292,11 @@ def plot_paragraph_graph(df: pd.DataFrame, title: str):
     if "EmotionConfidence" not in plot_df.columns:
         plot_df["EmotionConfidence"] = 0.0
     story_shape_name = ""
+    plot_story_shape = False
     if "StoryShapeScore" in plot_df.columns:
         matched = match_story_shape(plot_df["Score"].tolist())
         story_shape_name = matched.get("name", "")
+        plot_story_shape = bool(matched.get("plot_shape", False))
 
     fig = px.line(plot_df, x="Paragraph", y="Score", markers=True, title=title)
 
@@ -5018,7 +5328,7 @@ def plot_paragraph_graph(df: pd.DataFrame, title: str):
             hovertemplate="<b>Smoothed arc</b><br>Paragraph %{x}<br>Score: %{y:.3f}<extra></extra>",
         )
 
-    if "StoryShapeScore" in plot_df.columns and story_shape_name:
+    if "StoryShapeScore" in plot_df.columns and story_shape_name and plot_story_shape:
         fig.add_scatter(
             x=plot_df["Paragraph"],
             y=plot_df["StoryShapeScore"],
@@ -5154,6 +5464,170 @@ def show_analysis_block(analysis: dict, heading: str):
 """, unsafe_allow_html=True)
 
 
+def render_scroll_navigation_controls() -> None:
+    components.html(
+        """
+<script>
+(function () {
+    const parentWindow = window.parent || window;
+    const doc = parentWindow.document;
+    const controlId = "emotion-scroll-controls";
+    const styleId = "emotion-scroll-control-style";
+
+    function scrollableElements() {
+        const candidates = [
+            doc.scrollingElement,
+            doc.documentElement,
+            doc.body,
+            doc.querySelector("[data-testid='stAppViewContainer']"),
+            doc.querySelector(".stApp"),
+            doc.querySelector("section.main"),
+        ].filter(Boolean);
+
+        doc.querySelectorAll("div, section, main").forEach(function (element) {
+            const style = parentWindow.getComputedStyle(element);
+            const scrollable = /(auto|scroll)/.test(style.overflowY || "");
+            if (scrollable && element.scrollHeight > element.clientHeight + 8) {
+                candidates.push(element);
+            }
+        });
+
+        return Array.from(new Set(candidates));
+    }
+
+    parentWindow.__emotionScrollTo = function (target) {
+        const top = target === "top";
+        const run = function () {
+            try {
+                parentWindow.scrollTo({
+                    top: top ? 0 : Math.max(doc.body.scrollHeight, doc.documentElement.scrollHeight),
+                    left: 0,
+                    behavior: "smooth"
+                });
+            } catch (error) {
+                parentWindow.scrollTo(0, top ? 0 : Math.max(doc.body.scrollHeight, doc.documentElement.scrollHeight));
+            }
+
+            scrollableElements().forEach(function (element) {
+                try {
+                    element.scrollTo({
+                        top: top ? 0 : element.scrollHeight,
+                        left: 0,
+                        behavior: "smooth"
+                    });
+                } catch (error) {
+                    element.scrollTop = top ? 0 : element.scrollHeight;
+                }
+            });
+        };
+
+        run();
+        parentWindow.requestAnimationFrame(run);
+        parentWindow.setTimeout(run, 120);
+    };
+
+    function buildButton(label, target, title) {
+        const button = doc.createElement("button");
+        button.type = "button";
+        button.className = "emotion-scroll-btn";
+        button.textContent = label;
+        button.title = title;
+        button.setAttribute("aria-label", title);
+        button.addEventListener("click", function (event) {
+            event.preventDefault();
+            parentWindow.__emotionScrollTo(target);
+        });
+        return button;
+    }
+
+    try {
+        const oldControls = doc.getElementById("emotion-scroll-controls");
+        const oldAnchorControls = doc.getElementById("emotion-anchor-scroll-controls");
+        const oldStyle = doc.getElementById("emotion-scroll-control-style");
+        const oldAnchorTop = doc.getElementById("emotion-page-top");
+        const oldAnchorBottom = doc.getElementById("emotion-page-bottom");
+        if (oldControls) {
+            oldControls.remove();
+        }
+        if (oldAnchorControls) {
+            oldAnchorControls.remove();
+        }
+        if (oldStyle) {
+            oldStyle.remove();
+        }
+        if (oldAnchorTop) {
+            oldAnchorTop.remove();
+        }
+        if (oldAnchorBottom) {
+            oldAnchorBottom.remove();
+        }
+    } catch (error) {}
+
+    const controls = doc.createElement("div");
+    controls.id = controlId;
+    controls.appendChild(buildButton("\u2191", "top", "Go to top"));
+    controls.appendChild(buildButton("\u2193", "bottom", "Go to bottom"));
+    doc.body.appendChild(controls);
+
+    const style = doc.createElement("style");
+    style.id = styleId;
+    style.textContent = `
+        #emotion-scroll-controls {
+            position: fixed !important;
+            right: 16px !important;
+            bottom: 16px !important;
+            display: grid !important;
+            gap: 9px !important;
+            z-index: 2147483647 !important;
+            pointer-events: auto !important;
+        }
+        #emotion-scroll-controls .emotion-scroll-btn {
+            width: 44px !important;
+            height: 44px !important;
+            display: grid !important;
+            place-items: center !important;
+            padding: 0 !important;
+            border: 1px solid rgba(255, 255, 255, 0.55) !important;
+            border-radius: 999px !important;
+            background: linear-gradient(135deg, #0f766e, #14b8a6) !important;
+            color: #ffffff !important;
+            box-shadow: 0 12px 32px rgba(4, 12, 24, 0.28) !important;
+            cursor: pointer !important;
+            font-family: Arial, sans-serif !important;
+            font-size: 25px !important;
+            font-weight: 900 !important;
+            line-height: 1 !important;
+            text-align: center !important;
+            -webkit-text-fill-color: #ffffff !important;
+        }
+        #emotion-scroll-controls .emotion-scroll-btn:hover {
+            transform: translateY(-2px) !important;
+            filter: saturate(1.08) !important;
+            box-shadow: 0 16px 38px rgba(4, 12, 24, 0.34) !important;
+        }
+        #emotion-scroll-controls .emotion-scroll-btn:active {
+            transform: translateY(0) !important;
+        }
+        @media (max-width: 700px) {
+            #emotion-scroll-controls {
+                right: 12px !important;
+                bottom: 12px !important;
+            }
+            #emotion-scroll-controls .emotion-scroll-btn {
+                width: 40px !important;
+                height: 40px !important;
+                font-size: 23px !important;
+            }
+        }
+    `;
+    doc.head.appendChild(style);
+})();
+</script>
+        """,
+        height=0,
+    )
+
+
 def trigger_slow_auto_scroll() -> None:
     components.html(
         """
@@ -5239,6 +5713,7 @@ def trigger_slow_auto_scroll() -> None:
 # ----------------------------
 # UI
 # ----------------------------
+render_scroll_navigation_controls()
 render_hero()
 render_section_heading(
     "Analysis Workspace",
@@ -5280,7 +5755,7 @@ with option_col:
 with table_col:
     show_paragraph_table = st.checkbox("Show paragraph-wise table", value=False)
 with action_col:
-    analysis_requested = st.button("Analyze Emotion Flow", width="stretch")
+    analysis_requested = st.button("Analyze Emotion Flow", use_container_width=True)
 
 render_visual_tiles()
 
@@ -5339,7 +5814,7 @@ if analysis_requested:
                 else:
                     if show_paragraph_table:
                         with st.expander("View Paragraph-wise Emotion Results"):
-                            paragraph_df = analysis["df"][["Paragraph", "SentenceCount", "Score", "Sentiment", "Emotion", "EmotionConfidence", "Emoji", "Text"]]
+                            paragraph_df = analysis["df"][["Paragraph", "SentenceCount", "Score", "Sentiment", "Emotion", "EmotionConfidence", "EmotionNote", "Emoji", "Text"]]
                             render_paragraph_detail_report(paragraph_df, "Full Text Paragraph Details")
                             st.download_button(
                                 label="Download Paragraph Details CSV",
@@ -5352,7 +5827,7 @@ if analysis_requested:
                     st.markdown('<h3 class="chart-title">Interactive Emotion Flow</h3>', unsafe_allow_html=True)
                     st.plotly_chart(
                         plot_paragraph_graph(analysis["df"], "Paragraph Emotion Flow"),
-                        width="stretch"
+                        use_container_width=True
                     )
 
                     show_analysis_block(analysis, "Final Paragraph Analysis")
@@ -5385,7 +5860,7 @@ if analysis_requested:
 
                     if show_paragraph_table:
                         with st.expander(f"View Paragraph-wise Emotion Results for {section_title}"):
-                            paragraph_df = analysis["df"][["Paragraph", "SentenceCount", "Score", "Sentiment", "Emotion", "EmotionConfidence", "Emoji", "Text"]]
+                            paragraph_df = analysis["df"][["Paragraph", "SentenceCount", "Score", "Sentiment", "Emotion", "EmotionConfidence", "EmotionNote", "Emoji", "Text"]]
                             render_paragraph_detail_report(paragraph_df, f"{section_title} Paragraph Details")
                             safe_section_name = re.sub(r"[^A-Za-z0-9_-]+", "_", section_title).strip("_") or "section"
                             st.download_button(
@@ -5399,7 +5874,7 @@ if analysis_requested:
                     st.markdown('<h3 class="chart-title">Interactive Emotion Flow</h3>', unsafe_allow_html=True)
                     st.plotly_chart(
                         plot_paragraph_graph(analysis["df"], f"Emotion Flow for {section_title}"),
-                        width="stretch"
+                        use_container_width=True
                     )
 
                     show_analysis_block(analysis, f"{section_title} Analysis")
@@ -5425,7 +5900,7 @@ if analysis_requested:
                     render_section_heading("Full Text", "Peak Emotion Graph Across All Sections")
                     st.plotly_chart(
                         plot_peak_emotion_graph(peak_df),
-                        width="stretch"
+                        use_container_width=True
                     )
 
                     highest_peak_idx = peak_df["PeakScore"].abs().idxmax()
