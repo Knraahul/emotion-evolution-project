@@ -68,7 +68,7 @@ streamlit run src/app.py
 
 ## Architecture Diagram
 
-![Architecture](architecture/Architecture.png)
+![Architecture](Architecturee/Architecture.png)
 
 ---
 
