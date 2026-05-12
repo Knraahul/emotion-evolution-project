@@ -170,7 +170,7 @@ Story Chatbot
 
 # Architecture Diagram
 
-![Architecture](architecture/Architecture.png)
+![Architecture](Architecture/Architecture.png)
 
 ---
 
