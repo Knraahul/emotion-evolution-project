@@ -396,22 +396,6 @@ pip install -r requirements.txt
 streamlit run src/app.py
 ```
 
----
-
-# Sample Outputs
-
-## Emotion Dashboard
-
-![Dashboard](assets/dashboard.png)
-
----
-
-## Emotion Flow
-
-![Flow](assets/emotion_flow.png)
-
----
-
 # Outputs
 
 The project generates:
@@ -424,6 +408,21 @@ The project generates:
 - CSV reports
 - PDF reports
 - Chatbot-based story insights
+
+---
+# Demo Video
+
+Watch the complete project demo and walkthrough here:
+
+🎥 [Emotion Evolution in Stories - Project Demo](https://www.youtube.com/watch?v=eamXlFsoxmM)
+
+---
+
+# Google Drive Resources
+
+All project resources including presentation, demo video, reports, architecture diagrams, outputs, and additional materials can be accessed here:
+
+🔗 [Project Google Drive Folder](https://drive.google.com/drive/folders/1coXJJe0sca_48qE2kVgRGKIZuFku37uD?usp=sharing)
 
 ---
 
@@ -448,34 +447,6 @@ The platform combines:
 into one complete application suitable for literary analysis, storytelling research, educational tools, and narrative intelligence systems.
 
 Future enhancements such as multilingual support, speech emotion analysis, character-level tracking, and large language model integration can further expand the project into a scalable narrative AI platform.
-
----
-
-# Contributions
-
-## Raahul Narayana Reddy Kummitha
-
-- Designed and developed the complete system architecture and workflow
-- Built the unified preprocessing and normalization pipeline
-- Implemented OCR extraction and image preprocessing
-- Developed sentiment and emotion analysis pipelines
-- Integrated VADER and DistilRoBERTa models
-- Built story-shape matching using cosine similarity
-- Developed the Streamlit web application and interactive UI
-- Created Plotly-based visualization dashboards
-- Implemented CSV export and PDF report generation
-- Built chatbot integration and response pipeline
-- Conducted testing, debugging, optimization, and evaluation
-- Prepared documentation, presentation slides, and architecture design
-
----
-
-## Saanvi Joginipally
-
-- Assisted in project research and workflow validation
-- Supported feature testing and result verification
-- Contributed to presentation preparation and organization
-- Assisted in output analysis and application review
 
 ---
 
