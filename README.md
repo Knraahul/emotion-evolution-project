@@ -410,6 +410,15 @@ The project generates:
 - Chatbot-based story insights
 
 ---
+
+# Project Repository
+
+GitHub Repository:
+
+🔗 [Emotion Evolution in Stories - GitHub Repository](https://github.com/Knraahul/emotion-evolution-project)
+
+---
+
 # Demo Video
 
 Watch the complete project demo and walkthrough here:
